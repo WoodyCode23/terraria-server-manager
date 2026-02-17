@@ -1,0 +1,10 @@
+{
+  "port": 8080,
+  "passwordHash": null,
+  "serverPath": "/path/to/tModLoader/server",
+  "modsPath": "/path/to/tModLoader/Mods",
+  "configsPath": "/path/to/tModLoader/ModConfigs",
+  "worldsPath": "/path/to/tModLoader/Worlds",
+  "configFile": "/path/to/serverconfig.txt",
+  "maxLogLines": 500
+}

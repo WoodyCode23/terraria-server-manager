@@ -1,0 +1,15 @@
+[Unit]
+Description=Terraria Server Manager
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path/to/terraria-manager
+ExecStart=/usr/bin/node /path/to/terraria-manager/server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

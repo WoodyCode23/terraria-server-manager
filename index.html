@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terraria Server Manager</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg2: #16213e;
+    --bg3: #0f3460;
+    --accent: #e94560;
+    --accent2: #533483;
+    --green: #4ecca3;
+    --yellow: #f0c040;
+    --text: #e0e0e0;
+    --dim: #888;
+    --border: #2a2a4a;
+    --card: #1e1e3a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Setup Wizard ── */
+  #setup-screen {
+    display: none; align-items: center; justify-content: center;
+    min-height: 100vh; flex-direction: column; gap: 8px; padding: 20px;
+  }
+  #setup-screen h1 { font-size: 2rem; color: var(--accent); margin-bottom: 8px; }
+  #setup-screen p.subtitle { color: var(--dim); margin-bottom: 16px; font-size: 0.95rem; }
+  .setup-form { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 12px; }
+  .setup-form label { font-size: 0.85rem; color: var(--dim); margin-bottom: -8px; }
+  .setup-form input {
+    padding: 10px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg2);
+    color: var(--text); font-size: 0.95rem; width: 100%;
+  }
+  .setup-form input:focus { outline: none; border-color: var(--accent); }
+  .setup-form .row { display: flex; gap: 10px; }
+  .setup-form .row input { flex: 1; }
+  .setup-form button {
+    padding: 12px 32px; border-radius: 6px; border: none;
+    background: var(--accent); color: #fff; font-size: 1rem;
+    cursor: pointer; font-weight: 600; margin-top: 8px;
+  }
+  .setup-form button:hover { opacity: 0.85; }
+  .setup-form .hint { font-size: 0.8rem; color: var(--dim); margin-top: -8px; }
+  #setup-error { color: var(--accent); font-size: 0.9rem; min-height: 1.2em; }
+
+  /* ── Login ── */
+  #login-screen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; flex-direction: column; gap: 16px;
+  }
+  #login-screen h1 { font-size: 2rem; color: var(--accent); }
+  #login-screen input {
+    padding: 12px 16px; width: 280px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg2);
+    color: var(--text); font-size: 1rem;
+  }
+  #login-screen button {
+    padding: 12px 32px; border-radius: 6px; border: none;
+    background: var(--accent); color: #fff; font-size: 1rem;
+    cursor: pointer; font-weight: 600;
+  }
+  #login-screen button:hover { opacity: 0.85; }
+  #login-error { color: var(--accent); font-size: 0.9rem; }
+
+  /* ── App Layout ── */
+  #app { display: none; }
+  header {
+    background: var(--bg2); border-bottom: 2px solid var(--accent);
+    padding: 12px 24px; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 1.3rem; color: var(--accent); }
+  header .logout { background: none; border: 1px solid var(--dim); color: var(--dim);
+    padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+  header .logout:hover { border-color: var(--accent); color: var(--accent); }
+
+  nav {
+    background: var(--bg2); display: flex; border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    flex: 1; padding: 12px; background: none; border: none; border-bottom: 3px solid transparent;
+    color: var(--dim); font-size: 0.95rem; cursor: pointer; transition: 0.2s;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Cards ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border-radius: 8px; padding: 20px;
+    border: 1px solid var(--border);
+  }
+  .card .label { font-size: 0.8rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
+  .card .value.running { color: var(--green); }
+  .card .value.stopped { color: var(--accent); }
+  .card .value.starting, .card .value.stopping { color: var(--yellow); }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }
+  .btn {
+    padding: 10px 24px; border-radius: 6px; border: none;
+    font-size: 0.95rem; cursor: pointer; font-weight: 600; transition: 0.2s;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-start { background: var(--green); color: #111; }
+  .btn-stop { background: var(--accent); color: #fff; }
+  .btn-restart { background: var(--yellow); color: #111; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+  .btn:not(:disabled):hover { opacity: 0.85; transform: translateY(-1px); }
+
+  /* ── Players ── */
+  .player-list { background: var(--card); border-radius: 8px; border: 1px solid var(--border); }
+  .player-list h3 { padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+  .player-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+  }
+  .player-item:last-child { border-bottom: none; }
+  .player-item .kick-btn {
+    background: var(--accent); color: #fff; border: none; padding: 4px 12px;
+    border-radius: 4px; cursor: pointer; font-size: 0.8rem;
+  }
+  .no-players { padding: 20px; color: var(--dim); text-align: center; }
+
+  /* ── Platform Info ── */
+  .platform-info {
+    font-size: 0.8rem; color: var(--dim); margin-bottom: 16px;
+    padding: 8px 14px; background: var(--card); border-radius: 6px;
+    border: 1px solid var(--border); display: inline-block;
+  }
+
+  /* ── Mods Table ── */
+  .mod-banner {
+    background: var(--yellow); color: #111; padding: 10px 18px; border-radius: 6px;
+    margin-bottom: 16px; display: none; align-items: center; justify-content: space-between;
+    font-weight: 600;
+  }
+  .mod-banner.show { display: flex; }
+  .mod-table { width: 100%; border-collapse: collapse; }
+  .mod-table th, .mod-table td {
+    text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .mod-table th { color: var(--dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+  .mod-table tr { background: var(--card); }
+  .mod-table tr:hover { background: var(--bg3); }
+  .toggle {
+    width: 44px; height: 24px; border-radius: 12px; border: none;
+    cursor: pointer; position: relative; transition: 0.3s;
+  }
+  .toggle.on { background: var(--green); }
+  .toggle.off { background: #555; }
+  .toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    transition: 0.3s;
+  }
+  .toggle.on::after { left: 23px; }
+  .del-btn {
+    background: none; border: 1px solid var(--accent); color: var(--accent);
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;
+  }
+  .del-btn:hover { background: var(--accent); color: #fff; }
+
+  /* ── Upload ── */
+  .upload-area {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 30px;
+    text-align: center; margin-bottom: 20px; cursor: pointer; transition: 0.2s;
+  }
+  .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: rgba(233,69,96,0.05); }
+  .upload-area input { display: none; }
+  .progress-bar {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+    margin-top: 10px; display: none;
+  }
+  .progress-bar .fill { height: 100%; background: var(--green); transition: width 0.3s; width: 0; }
+
+  /* ── Mod Configs ── */
+  .modconfig-layout { display: flex; gap: 16px; min-height: 60vh; }
+  .modconfig-sidebar {
+    width: 240px; flex-shrink: 0; background: var(--card);
+    border-radius: 8px; border: 1px solid var(--border); overflow-y: auto; max-height: 70vh;
+  }
+  .modconfig-sidebar .item {
+    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+    font-size: 0.85rem; transition: 0.15s; word-break: break-all;
+  }
+  .modconfig-sidebar .item:hover { background: var(--bg3); }
+  .modconfig-sidebar .item.active { background: var(--bg3); color: var(--accent); border-left: 3px solid var(--accent); }
+  .modconfig-editor {
+    flex: 1; display: flex; flex-direction: column; gap: 12px;
+  }
+  .modconfig-editor .restart-warn {
+    background: var(--yellow); color: #111; padding: 8px 14px; border-radius: 6px;
+    font-size: 0.85rem; font-weight: 600; display: none;
+  }
+  .modconfig-editor .restart-warn.show { display: block; }
+  .modconfig-form {
+    background: var(--card); border-radius: 8px; border: 1px solid var(--border);
+    padding: 16px; flex: 1; overflow-y: auto; max-height: 60vh;
+  }
+  .modconfig-form .field { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+  .modconfig-form .field label { flex: 0 0 200px; font-size: 0.85rem; color: var(--dim); word-break: break-all; }
+  .modconfig-form .field input[type="text"],
+  .modconfig-form .field input[type="number"] {
+    flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--text); font-size: 0.85rem;
+  }
+  .modconfig-form .field input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+  .modconfig-raw {
+    width: 100%; min-height: 40vh; background: #0a0a1a; color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85rem;
+    resize: vertical; line-height: 1.5;
+  }
+  .modconfig-none { color: var(--dim); padding: 40px; text-align: center; }
+
+  /* ── Worlds ── */
+  .world-card {
+    background: var(--card); border-radius: 8px; border: 1px solid var(--border);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .world-card .world-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+  }
+  .world-card .world-header h3 { font-size: 1.05rem; }
+  .world-card .world-meta { font-size: 0.8rem; color: var(--dim); margin-bottom: 12px; }
+  .world-card .backup-list { margin-top: 8px; }
+  .world-card .backup-toggle {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 0.8rem; padding: 0; margin-top: 4px;
+  }
+  .world-card .backup-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: var(--bg2); border-radius: 4px; margin-top: 6px;
+    font-size: 0.8rem;
+  }
+  .world-card .backup-item .backup-actions { display: flex; gap: 6px; }
+  .world-card .backup-item .backup-name { word-break: break-all; flex: 1; margin-right: 10px; }
+
+  /* ── Console ── */
+  .console-wrap {
+    background: #0a0a1a; border-radius: 8px; border: 1px solid var(--border);
+    display: flex; flex-direction: column; height: 70vh;
+  }
+  .console-log {
+    flex: 1; overflow-y: auto; padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+  }
+  .console-log .err { color: var(--accent); }
+  .console-log .cmd { color: var(--green); }
+  .console-log .mgr { color: var(--yellow); }
+  .console-input {
+    display: flex; border-top: 1px solid var(--border);
+  }
+  .console-input input {
+    flex: 1; background: #0d0d1f; border: none; padding: 12px 16px;
+    color: var(--green); font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.9rem; outline: none;
+  }
+  .console-input button {
+    background: var(--accent); border: none; color: #fff; padding: 12px 20px;
+    cursor: pointer; font-weight: 600;
+  }
+  .scroll-lock-bar {
+    text-align: center; padding: 4px; background: var(--bg2);
+    font-size: 0.75rem; color: var(--yellow); display: none; cursor: pointer;
+  }
+  .scroll-lock-bar.show { display: block; }
+
+  /* ── Config ── */
+  .config-editor {
+    width: 100%; min-height: 50vh; background: #0a0a1a; color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85rem;
+    resize: vertical; outline: none; line-height: 1.6;
+  }
+  .config-actions { margin-top: 12px; display: flex; gap: 10px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .modconfig-layout { flex-direction: column; }
+    .modconfig-sidebar { width: 100%; max-height: 200px; }
+  }
+  @media (max-width: 600px) {
+    .cards { grid-template-columns: 1fr 1fr; }
+    .btn-row { flex-direction: column; }
+    nav button { font-size: 0.75rem; padding: 10px 4px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Setup Wizard -->
+<div id="setup-screen">
+  <h1>Terraria Server Manager</h1>
+  <p class="subtitle">First-time setup &mdash; configure your server paths and password</p>
+  <div class="setup-form">
+    <label>Password</label>
+    <div class="row">
+      <input type="password" id="setup-pw" placeholder="Choose a password">
+      <input type="password" id="setup-pw2" placeholder="Confirm password">
+    </div>
+    <label>tModLoader Server Path</label>
+    <input type="text" id="setup-serverpath" placeholder="/path/to/tModLoader/server">
+    <div class="hint">Directory containing tModLoader.dll</div>
+    <label>Mods Path</label>
+    <input type="text" id="setup-modspath" placeholder="Auto-detected">
+    <label>Mod Configs Path</label>
+    <input type="text" id="setup-configspath" placeholder="Auto-detected">
+    <label>Worlds Path</label>
+    <input type="text" id="setup-worldspath" placeholder="Auto-detected">
+    <label>Server Config File</label>
+    <input type="text" id="setup-configfile" placeholder="/path/to/serverconfig.txt">
+    <div class="hint">The serverconfig.txt used to launch tModLoader</div>
+    <div id="setup-error"></div>
+    <button onclick="doSetup()">Complete Setup</button>
+  </div>
+</div>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <h1>Terraria Server Manager</h1>
+  <input type="password" id="login-pw" placeholder="Password" autofocus>
+  <button onclick="doLogin()">Login</button>
+  <div id="login-error"></div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <h1>Terraria Server Manager</h1>
+    <button class="logout" onclick="doLogout()">Logout</button>
+  </header>
+
+  <nav>
+    <button class="active" data-panel="dashboard">Dashboard</button>
+    <button data-panel="mods">Mods</button>
+    <button data-panel="modconfigs">Mod Configs</button>
+    <button data-panel="worlds">Worlds</button>
+    <button data-panel="console">Console</button>
+    <button data-panel="config">Config</button>
+  </nav>
+
+  <main>
+    <!-- Dashboard -->
+    <div id="panel-dashboard" class="panel active">
+      <div class="platform-info" id="platform-info"></div>
+      <div class="cards">
+        <div class="card">
+          <div class="label">Status</div>
+          <div class="value" id="dash-status">--</div>
+        </div>
+        <div class="card">
+          <div class="label">Uptime</div>
+          <div class="value" id="dash-uptime">--</div>
+        </div>
+        <div class="card">
+          <div class="label">RAM Usage</div>
+          <div class="value" id="dash-ram">--</div>
+        </div>
+        <div class="card">
+          <div class="label">Players</div>
+          <div class="value" id="dash-players">0</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-start" id="btn-start" onclick="apiPost('/api/start')">Start</button>
+        <button class="btn btn-stop" id="btn-stop" onclick="apiPost('/api/stop')">Stop</button>
+        <button class="btn btn-restart" id="btn-restart" onclick="apiPost('/api/restart')">Restart</button>
+      </div>
+
+      <div class="player-list">
+        <h3>Connected Players</h3>
+        <div id="player-list-body">
+          <div class="no-players">No players connected</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mods -->
+    <div id="panel-mods" class="panel">
+      <div class="mod-banner" id="mod-banner">
+        <span>Mod changes require a server restart to take effect</span>
+        <button class="btn btn-restart" style="padding:6px 16px" onclick="apiPost('/api/restart')">Restart Now</button>
+      </div>
+
+      <div class="upload-area" id="upload-area">
+        <p>Drag & drop .tmod files here, or click to browse</p>
+        <input type="file" id="upload-input" accept=".tmod" multiple>
+        <div class="progress-bar" id="upload-progress">
+          <div class="fill" id="upload-fill"></div>
+        </div>
+      </div>
+
+      <table class="mod-table">
+        <thead>
+          <tr><th>Mod</th><th>Version</th><th>Size</th><th>Enabled</th><th></th></tr>
+        </thead>
+        <tbody id="mod-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Mod Configs -->
+    <div id="panel-modconfigs" class="panel">
+      <div class="modconfig-layout">
+        <div class="modconfig-sidebar" id="modconfig-list">
+          <div class="modconfig-none">Loading...</div>
+        </div>
+        <div class="modconfig-editor" id="modconfig-editor">
+          <div class="restart-warn" id="modconfig-restart-warn">Changes to mod configs require a server restart to take effect</div>
+          <div class="modconfig-none" id="modconfig-placeholder">Select a config file from the sidebar</div>
+          <div id="modconfig-form-container" style="display:none">
+            <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
+              <h3 id="modconfig-title" style="flex:1;font-size:0.95rem"></h3>
+              <label style="font-size:0.8rem;color:var(--dim);cursor:pointer">
+                <input type="checkbox" id="modconfig-raw-toggle" onchange="toggleModConfigRaw()"> Raw JSON
+              </label>
+              <button class="btn btn-primary btn-sm" onclick="saveModConfig()">Save</button>
+            </div>
+            <div id="modconfig-form" class="modconfig-form"></div>
+            <textarea id="modconfig-raw" class="modconfig-raw" style="display:none"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Worlds -->
+    <div id="panel-worlds" class="panel">
+      <div id="worlds-list">
+        <div class="modconfig-none">Loading worlds...</div>
+      </div>
+    </div>
+
+    <!-- Console -->
+    <div id="panel-console" class="panel">
+      <div class="console-wrap">
+        <div class="console-log" id="console-log"></div>
+        <div class="scroll-lock-bar" id="scroll-lock" onclick="unlockScroll()">
+          Scroll locked — click to resume auto-scroll
+        </div>
+        <div class="console-input">
+          <input type="text" id="console-cmd" placeholder="Type a command..." onkeydown="if(event.key==='Enter')sendCmd()">
+          <button onclick="sendCmd()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config -->
+    <div id="panel-config" class="panel">
+      <h3 style="margin-bottom:12px">serverconfig.txt</h3>
+      <textarea class="config-editor" id="config-editor"></textarea>
+      <div class="config-actions">
+        <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+        <button class="btn btn-secondary" onclick="loadConfig()">Reload</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── State ──
+let token = localStorage.getItem('tm_token');
+let ws = null;
+let scrollLocked = false;
+let modsDirty = false;
+let currentModConfig = null;
+let currentModConfigData = null;
+let serverRunning = false;
+
+const API = '';
+
+// ── Init Flow ──
+async function init() {
+  try {
+    const res = await fetch(API + '/api/needs-setup');
+    const data = await res.json();
+    if (data.needsSetup) {
+      showSetup(data.defaults);
+      return;
+    }
+  } catch {
+    // Server unreachable, show login anyway
+  }
+
+  if (token) {
+    try {
+      const r = await fetch(API + '/api/status', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (r.ok) { showApp(); return; }
+    } catch {}
+  }
+  showLogin();
+}
+
+function showSetup(defaults) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('setup-screen').style.display = 'flex';
+  if (defaults) {
+    document.getElementById('setup-modspath').placeholder = defaults.modsPath || '';
+    document.getElementById('setup-configspath').placeholder = defaults.configsPath || '';
+    document.getElementById('setup-worldspath').placeholder = defaults.worldsPath || '';
+    document.getElementById('setup-modspath').value = defaults.modsPath || '';
+    document.getElementById('setup-configspath').value = defaults.configsPath || '';
+    document.getElementById('setup-worldspath').value = defaults.worldsPath || '';
+  }
+}
+
+function showLogin() {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-pw').focus();
+}
+
+// ── Setup ──
+async function doSetup() {
+  const pw = document.getElementById('setup-pw').value;
+  const pw2 = document.getElementById('setup-pw2').value;
+  const errEl = document.getElementById('setup-error');
+
+  if (!pw || pw.length < 4) { errEl.textContent = 'Password must be at least 4 characters'; return; }
+  if (pw !== pw2) { errEl.textContent = 'Passwords do not match'; return; }
+
+  const body = {
+    password: pw,
+    serverPath: document.getElementById('setup-serverpath').value,
+    modsPath: document.getElementById('setup-modspath').value,
+    configsPath: document.getElementById('setup-configspath').value,
+    worldsPath: document.getElementById('setup-worldspath').value,
+    configFile: document.getElementById('setup-configfile').value
+  };
+
+  try {
+    const res = await fetch(API + '/api/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.token) {
+      token = data.token;
+      localStorage.setItem('tm_token', token);
+      showApp();
+    } else {
+      errEl.textContent = data.error || 'Setup failed';
+    }
+  } catch (e) {
+    errEl.textContent = 'Connection error';
+  }
+}
+
+// ── Auth ──
+async function doLogin() {
+  const pw = document.getElementById('login-pw').value;
+  try {
+    const res = await fetch(API + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (data.token) {
+      token = data.token;
+      localStorage.setItem('tm_token', token);
+      showApp();
+    } else {
+      document.getElementById('login-error').textContent = data.error || 'Login failed';
+    }
+  } catch {
+    document.getElementById('login-error').textContent = 'Connection error';
+  }
+}
+
+function doLogout() {
+  token = null;
+  localStorage.removeItem('tm_token');
+  if (ws) ws.close();
+  document.getElementById('app').style.display = 'none';
+  showLogin();
+}
+
+async function showApp() {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  connectWs();
+  loadMods();
+  loadConfig();
+  loadModConfigs();
+  loadWorlds();
+}
+
+// ── API Helpers ──
+async function apiFetch(path, opts = {}) {
+  opts.headers = { ...opts.headers, 'Authorization': 'Bearer ' + token };
+  const res = await fetch(API + path, opts);
+  if (res.status === 401) { doLogout(); return null; }
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  return apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : '{}'
+  });
+}
+
+// ── WebSocket ──
+function connectWs() {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}?token=${token}`);
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'status') updateDashboard(msg);
+    if (msg.type === 'players') updatePlayers(msg.players);
+    if (msg.type === 'log') appendLogLine(msg.line);
+    if (msg.type === 'logs') {
+      document.getElementById('console-log').innerHTML = '';
+      msg.lines.forEach(l => appendLogLine(l));
+    }
+  };
+
+  ws.onclose = () => {
+    setTimeout(connectWs, 3000);
+  };
+}
+
+// ── Dashboard ──
+function updateDashboard(data) {
+  const statusEl = document.getElementById('dash-status');
+  statusEl.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+  statusEl.className = 'value ' + data.status;
+
+  document.getElementById('dash-uptime').textContent = formatUptime(data.uptime);
+  document.getElementById('dash-ram').textContent = data.ram ? data.ram + ' MB' : '--';
+  document.getElementById('dash-players').textContent = data.players ? data.players.length : 0;
+
+  if (data.players) updatePlayers(data.players);
+
+  serverRunning = data.status === 'running';
+  const stopped = data.status === 'stopped';
+  document.getElementById('btn-start').disabled = !stopped;
+  document.getElementById('btn-stop').disabled = stopped;
+  document.getElementById('btn-restart').disabled = stopped;
+
+  // Platform info (set once)
+  if (data.platform && !document.getElementById('platform-info').textContent) {
+    const pNames = { linux: 'Linux', win32: 'Windows', darwin: 'macOS' };
+    document.getElementById('platform-info').textContent =
+      `Server: ${pNames[data.platform] || data.platform} | Node ${data.nodeVersion || '?'}`;
+  }
+}
+
+function formatUptime(secs) {
+  if (!secs) return '--';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function updatePlayers(list) {
+  const el = document.getElementById('player-list-body');
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div class="no-players">No players connected</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="player-item">
+      <span>${escHtml(p)}</span>
+      <button class="kick-btn" onclick="kickPlayer('${escHtml(p)}')">Kick</button>
+    </div>
+  `).join('');
+}
+
+function kickPlayer(name) {
+  apiPost('/api/command', { command: `kick ${name}` });
+}
+
+// ── Mods ──
+async function loadMods() {
+  const mods = await apiFetch('/api/mods');
+  if (!mods) return;
+  const tbody = document.getElementById('mod-tbody');
+  tbody.innerHTML = mods.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
+    <tr>
+      <td><strong>${escHtml(m.name)}</strong><br><small style="color:var(--dim)">${escHtml(m.filename)}</small></td>
+      <td>${escHtml(m.version)}</td>
+      <td>${formatSize(m.size)}</td>
+      <td>
+        <button class="toggle ${m.enabled ? 'on' : 'off'}" onclick="toggleMod('${escHtml(m.name)}', this)"></button>
+      </td>
+      <td>
+        <button class="del-btn" onclick="deleteMod('${escHtml(m.filename)}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function toggleMod(name, btn) {
+  await apiPost('/api/mods/toggle', { name });
+  btn.classList.toggle('on');
+  btn.classList.toggle('off');
+  showModBanner();
+}
+
+async function deleteMod(filename) {
+  if (!confirm(`Delete ${filename}?`)) return;
+  await apiPost('/api/mods/delete', { filename });
+  loadMods();
+  showModBanner();
+}
+
+function showModBanner() {
+  document.getElementById('mod-banner').classList.add('show');
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// ── Upload ──
+const uploadArea = document.getElementById('upload-area');
+const uploadInput = document.getElementById('upload-input');
+
+uploadArea.addEventListener('click', () => uploadInput.click());
+uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+uploadInput.addEventListener('change', () => handleFiles(uploadInput.files));
+
+async function handleFiles(files) {
+  for (const file of files) {
+    if (!file.name.endsWith('.tmod')) continue;
+    await uploadFile(file);
+  }
+  loadMods();
+  showModBanner();
+}
+
+function uploadFile(file) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    const progress = document.getElementById('upload-progress');
+    const fill = document.getElementById('upload-fill');
+    progress.style.display = 'block';
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100) + '%';
+    };
+    xhr.onload = () => {
+      fill.style.width = '100%';
+      setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0'; }, 1000);
+      resolve();
+    };
+    xhr.onerror = () => { progress.style.display = 'none'; resolve(); };
+
+    xhr.open('POST', API + '/api/mods/upload?filename=' + encodeURIComponent(file.name));
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.send(file);
+  });
+}
+
+// ── Mod Configs ──
+async function loadModConfigs() {
+  const configs = await apiFetch('/api/modconfigs');
+  if (!configs) return;
+  const el = document.getElementById('modconfig-list');
+  if (configs.length === 0) {
+    el.innerHTML = '<div class="modconfig-none">No mod config files found</div>';
+    return;
+  }
+  el.innerHTML = configs.sort((a, b) => a.filename.localeCompare(b.filename)).map(c =>
+    `<div class="item" onclick="selectModConfig('${escAttr(c.filename)}')">${escHtml(c.filename)}</div>`
+  ).join('');
+}
+
+async function selectModConfig(filename) {
+  currentModConfig = filename;
+  // Highlight sidebar
+  document.querySelectorAll('#modconfig-list .item').forEach(el => {
+    el.classList.toggle('active', el.textContent === filename);
+  });
+
+  const data = await apiFetch('/api/modconfigs/' + encodeURIComponent(filename));
+  if (!data) return;
+
+  document.getElementById('modconfig-placeholder').style.display = 'none';
+  document.getElementById('modconfig-form-container').style.display = 'block';
+  document.getElementById('modconfig-title').textContent = filename;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(data.content);
+  } catch {
+    // Not valid JSON, show raw
+    document.getElementById('modconfig-raw-toggle').checked = true;
+    document.getElementById('modconfig-form').style.display = 'none';
+    document.getElementById('modconfig-raw').style.display = 'block';
+    document.getElementById('modconfig-raw').value = data.content;
+    currentModConfigData = null;
+    return;
+  }
+
+  currentModConfigData = parsed;
+
+  // Check if flat (all values are primitives)
+  const isFlat = Object.values(parsed).every(v => v === null || typeof v !== 'object');
+
+  if (isFlat && !document.getElementById('modconfig-raw-toggle').checked) {
+    renderModConfigForm(parsed);
+    document.getElementById('modconfig-form').style.display = 'block';
+    document.getElementById('modconfig-raw').style.display = 'none';
+  } else {
+    document.getElementById('modconfig-raw-toggle').checked = true;
+    document.getElementById('modconfig-form').style.display = 'none';
+    document.getElementById('modconfig-raw').style.display = 'block';
+    document.getElementById('modconfig-raw').value = JSON.stringify(parsed, null, 2);
+  }
+}
+
+function renderModConfigForm(data) {
+  const el = document.getElementById('modconfig-form');
+  el.innerHTML = Object.entries(data).map(([key, val]) => {
+    if (typeof val === 'boolean') {
+      return `<div class="field">
+        <label>${escHtml(key)}</label>
+        <input type="checkbox" data-key="${escAttr(key)}" ${val ? 'checked' : ''}>
+      </div>`;
+    }
+    if (typeof val === 'number') {
+      return `<div class="field">
+        <label>${escHtml(key)}</label>
+        <input type="number" data-key="${escAttr(key)}" value="${val}" step="any">
+      </div>`;
+    }
+    return `<div class="field">
+      <label>${escHtml(key)}</label>
+      <input type="text" data-key="${escAttr(key)}" value="${escAttr(String(val ?? ''))}">
+    </div>`;
+  }).join('');
+}
+
+function toggleModConfigRaw() {
+  const raw = document.getElementById('modconfig-raw-toggle').checked;
+  if (raw) {
+    // Collect form values into JSON
+    if (currentModConfigData) {
+      const formData = collectModConfigForm();
+      document.getElementById('modconfig-raw').value = JSON.stringify(formData, null, 2);
+    }
+    document.getElementById('modconfig-form').style.display = 'none';
+    document.getElementById('modconfig-raw').style.display = 'block';
+  } else {
+    // Parse raw back to form
+    try {
+      const parsed = JSON.parse(document.getElementById('modconfig-raw').value);
+      const isFlat = Object.values(parsed).every(v => v === null || typeof v !== 'object');
+      if (isFlat) {
+        currentModConfigData = parsed;
+        renderModConfigForm(parsed);
+        document.getElementById('modconfig-form').style.display = 'block';
+        document.getElementById('modconfig-raw').style.display = 'none';
+      } else {
+        document.getElementById('modconfig-raw-toggle').checked = true;
+        alert('This config has nested values and can only be edited as raw JSON.');
+      }
+    } catch {
+      document.getElementById('modconfig-raw-toggle').checked = true;
+      alert('Invalid JSON — fix errors before switching to form view.');
+    }
+  }
+}
+
+function collectModConfigForm() {
+  const data = { ...currentModConfigData };
+  document.querySelectorAll('#modconfig-form [data-key]').forEach(input => {
+    const key = input.dataset.key;
+    if (input.type === 'checkbox') data[key] = input.checked;
+    else if (input.type === 'number') data[key] = parseFloat(input.value) || 0;
+    else data[key] = input.value;
+  });
+  return data;
+}
+
+async function saveModConfig() {
+  if (!currentModConfig) return;
+  let content;
+  if (document.getElementById('modconfig-raw-toggle').checked) {
+    content = document.getElementById('modconfig-raw').value;
+  } else {
+    content = JSON.stringify(collectModConfigForm(), null, 2);
+  }
+
+  const res = await apiFetch('/api/modconfigs/' + encodeURIComponent(currentModConfig), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  if (res && res.ok) {
+    document.getElementById('modconfig-restart-warn').classList.add('show');
+  }
+}
+
+// ── Worlds ──
+async function loadWorlds() {
+  const worlds = await apiFetch('/api/worlds');
+  if (!worlds) return;
+  const el = document.getElementById('worlds-list');
+  if (worlds.length === 0) {
+    el.innerHTML = '<div class="modconfig-none">No world files found</div>';
+    return;
+  }
+  el.innerHTML = worlds.map(w => {
+    const backupHtml = w.backups.length > 0
+      ? `<button class="backup-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+           ${w.backups.length} backup${w.backups.length !== 1 ? 's' : ''} (click to expand)
+         </button>
+         <div class="backup-list" style="display:none">
+           ${w.backups.map(b => `
+             <div class="backup-item">
+               <span class="backup-name">${escHtml(b.filename)}<br><small style="color:var(--dim)">${formatSize(b.size)} &middot; ${new Date(b.modified).toLocaleString()}</small></span>
+               <div class="backup-actions">
+                 <button class="btn btn-secondary btn-sm" onclick="restoreBackup('${escAttr(w.filename)}','${escAttr(b.filename)}')" ${serverRunning ? 'disabled title="Stop server first"' : ''}>Restore</button>
+                 <button class="btn btn-stop btn-sm" onclick="deleteBackup('${escAttr(b.filename)}')">Delete</button>
+               </div>
+             </div>
+           `).join('')}
+         </div>`
+      : '<div style="font-size:0.8rem;color:var(--dim);margin-top:4px">No backups</div>';
+
+    return `
+      <div class="world-card">
+        <div class="world-header">
+          <h3>${escHtml(w.name)}</h3>
+          <button class="btn btn-primary btn-sm" onclick="createBackup('${escAttr(w.filename)}')">Create Backup</button>
+        </div>
+        <div class="world-meta">${formatSize(w.size)} &middot; Last modified: ${new Date(w.modified).toLocaleString()}</div>
+        ${backupHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+async function createBackup(filename) {
+  const res = await apiPost('/api/worlds/backup', { filename });
+  if (res && res.ok) {
+    loadWorlds();
+  } else if (res) {
+    alert(res.error || 'Backup failed');
+  }
+}
+
+async function restoreBackup(worldFilename, backupFilename) {
+  if (serverRunning) { alert('Stop the server before restoring a backup.'); return; }
+  if (!confirm(`Restore ${backupFilename} over ${worldFilename}? This will overwrite the current world file.`)) return;
+  const res = await apiPost('/api/worlds/restore', { worldFilename, backupFilename });
+  if (res && res.ok) {
+    alert('Backup restored successfully.');
+    loadWorlds();
+  } else if (res) {
+    alert(res.error || 'Restore failed');
+  }
+}
+
+async function deleteBackup(filename) {
+  if (!confirm(`Delete backup ${filename}?`)) return;
+  const res = await apiPost('/api/worlds/delete-backup', { filename });
+  if (res && res.ok) {
+    loadWorlds();
+  } else if (res) {
+    alert(res.error || 'Delete failed');
+  }
+}
+
+// ── Console ──
+function appendLogLine(line) {
+  const el = document.getElementById('console-log');
+  const div = document.createElement('div');
+  if (line.startsWith('[ERR]')) div.className = 'err';
+  else if (line.startsWith('>')) div.className = 'cmd';
+  else if (line.startsWith('[MANAGER]')) div.className = 'mgr';
+  div.textContent = line;
+  el.appendChild(div);
+
+  while (el.children.length > 500) el.removeChild(el.firstChild);
+
+  if (!scrollLocked) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+document.getElementById('console-log').addEventListener('scroll', function() {
+  const el = this;
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  scrollLocked = !atBottom;
+  document.getElementById('scroll-lock').classList.toggle('show', scrollLocked);
+});
+
+function unlockScroll() {
+  scrollLocked = false;
+  document.getElementById('scroll-lock').classList.remove('show');
+  const el = document.getElementById('console-log');
+  el.scrollTop = el.scrollHeight;
+}
+
+function sendCmd() {
+  const input = document.getElementById('console-cmd');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  apiPost('/api/command', { command: cmd });
+  input.value = '';
+}
+
+// ── Config ──
+async function loadConfig() {
+  const data = await apiFetch('/api/config');
+  if (data) document.getElementById('config-editor').value = data.content;
+}
+
+async function saveConfig() {
+  const content = document.getElementById('config-editor').value;
+  await apiFetch('/api/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  alert('Config saved. Restart the server for changes to take effect.');
+}
+
+// ── Nav ──
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
+    // Reload data for tabs
+    if (btn.dataset.panel === 'modconfigs') loadModConfigs();
+    if (btn.dataset.panel === 'worlds') loadWorlds();
+  });
+});
+
+// ── Util ──
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function escAttr(s) {
+  return s.replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──
+document.getElementById('login-pw').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('setup-pw2').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doSetup();
+});
+
+init();
+</script>
+</body>
+</html>
