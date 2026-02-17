@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 
 // ── Cross-Platform Helpers ──────────────────────────────────────────────────
@@ -222,6 +223,193 @@ function parseTmod(filePath) {
   } catch {
     return null;
   }
+}
+
+// ── .tmod HJSON Extraction (for mod config registry) ────────────────────────
+function extractHjsonFiles(tmodPath) {
+  const buf = fs.readFileSync(tmodPath);
+  if (buf.toString('ascii', 0, 4) !== 'TMOD') return null;
+  let pos = 4;
+  const tmlVer = readString(buf, pos); pos = tmlVer.pos;
+  pos += 20 + 256 + 4; // hash + signature + data length
+  const modName = readString(buf, pos); pos = modName.pos;
+  const modVer = readString(buf, pos); pos = modVer.pos;
+  const fileCount = buf.readUInt32LE(pos); pos += 4;
+  // Read file table first (paths + sizes), then data sequentially
+  const fileTable = [];
+  for (let i = 0; i < fileCount; i++) {
+    const fp = readString(buf, pos); pos = fp.pos;
+    const origSize = buf.readUInt32LE(pos); pos += 4;
+    const compSize = buf.readUInt32LE(pos); pos += 4;
+    fileTable.push({ path: fp.value, origSize, compSize });
+  }
+  const results = [];
+  for (const f of fileTable) {
+    const raw = buf.slice(pos, pos + f.compSize);
+    pos += f.compSize;
+    if (f.path.endsWith('.hjson') && /en-US/i.test(f.path)) {
+      let data;
+      if (f.compSize !== f.origSize) {
+        try { data = zlib.inflateRawSync(raw).toString('utf8'); } catch { continue; }
+      } else { data = raw.toString('utf8'); }
+      results.push({ path: f.path, content: data });
+    }
+  }
+  return { name: modName.value, version: modVer.value, results };
+}
+
+function flattenHjson(text) {
+  const result = {};
+  const stack = [];
+  const lines = text.split('\n');
+  let inMultiline = false, multilineKey = null, multilineValue = '';
+  for (let line of lines) {
+    if (inMultiline) {
+      if (line.trim() === "'''") {
+        result[multilineKey] = multilineValue.trim();
+        inMultiline = false;
+        continue;
+      }
+      multilineValue += line + '\n';
+      continue;
+    }
+    line = line.replace(/\/\/.*$/, '');
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (trimmed === '}' || trimmed === '},') { stack.pop(); continue; }
+    const blockMatch = trimmed.match(/^"?([^":{}\s]+)"?\s*[:=]?\s*\{$/);
+    if (blockMatch) { stack.push(blockMatch[1]); continue; }
+    const kvMatch = trimmed.match(/^"?([^":{}\s]+)"?\s*[:=]\s*(.*)$/);
+    if (kvMatch) {
+      let key = kvMatch[1];
+      let value = kvMatch[2].replace(/,?\s*$/, '');
+      if (value === '{') { stack.push(key); continue; }
+      if (value.trim() === "'''") {
+        inMultiline = true;
+        multilineKey = [...stack, key].join('.');
+        multilineValue = '';
+        continue;
+      }
+      value = value.replace(/^"(.*)"$/, '$1');
+      result[[...stack, key].join('.')] = value;
+    }
+  }
+  return result;
+}
+
+function parseHjsonForConfigs(hjsonContent, filePath) {
+  const flat = flattenHjson(hjsonContent);
+  const configs = {};
+  const isConfigFile = /[Cc]onfigs/i.test(filePath);
+  for (const [p, value] of Object.entries(flat)) {
+    let match;
+    // Pattern 1: Configs.ClassName.PropertyName.Label/Tooltip
+    match = p.match(/(?:^|\.)?Configs\.(\w+)\.(\w+?)\.(\w+)$/);
+    if (match) {
+      const [, className, propName, subKey] = match;
+      if (subKey === 'Label' || subKey === 'Tooltip') {
+        if (!configs[className]) configs[className] = { displayName: className, properties: {} };
+        if (!configs[className].properties[propName]) configs[className].properties[propName] = {};
+        configs[className].properties[propName][subKey.toLowerCase()] = value;
+      }
+      continue;
+    }
+    match = p.match(/(?:^|\.)?Configs\.(\w+)\.DisplayName$/);
+    if (match) {
+      if (!configs[match[1]]) configs[match[1]] = { displayName: match[1], properties: {} };
+      configs[match[1]].displayName = value;
+      continue;
+    }
+    // Pattern 2: Config-specific files — ClassName.PropertyName.Label
+    if (isConfigFile) {
+      match = p.match(/^(\w+)\.(\w+)\.(\w+)$/);
+      if (match) {
+        const [, className, propName, subKey] = match;
+        if (subKey === 'Label' || subKey === 'Tooltip') {
+          if (propName === 'Headers') continue;
+          if (!configs[className]) configs[className] = { displayName: className, properties: {} };
+          if (!configs[className].properties[propName]) configs[className].properties[propName] = {};
+          configs[className].properties[propName][subKey.toLowerCase()] = value;
+        }
+        continue;
+      }
+      match = p.match(/^(\w+)\.DisplayName$/);
+      if (match) {
+        if (!configs[match[1]]) configs[match[1]] = { displayName: match[1], properties: {} };
+        configs[match[1]].displayName = value;
+        continue;
+      }
+    }
+  }
+  // Filter: only keep classes that have at least one labeled property
+  for (const [cls, data] of Object.entries(configs)) {
+    if (!Object.values(data.properties).some(p => p.label)) delete configs[cls];
+  }
+  return configs;
+}
+
+let modConfigRegistry = null;
+let registryScanTime = 0;
+
+function scanModConfigRegistry() {
+  const modsPath = getModsPath();
+  let tmodFiles;
+  try { tmodFiles = fs.readdirSync(modsPath).filter(f => f.endsWith('.tmod')); } catch { return {}; }
+  const registry = {};
+  for (const f of tmodFiles) {
+    try {
+      const result = extractHjsonFiles(path.join(modsPath, f));
+      if (!result || result.results.length === 0) continue;
+      let allConfigs = {};
+      for (const hjson of result.results) {
+        const configs = parseHjsonForConfigs(hjson.content, hjson.path);
+        for (const [cls, data] of Object.entries(configs)) {
+          if (!allConfigs[cls]) { allConfigs[cls] = data; }
+          else {
+            if (data.displayName !== cls) allConfigs[cls].displayName = data.displayName;
+            Object.assign(allConfigs[cls].properties, data.properties);
+          }
+        }
+      }
+      for (const [cls, data] of Object.entries(allConfigs)) {
+        data.filename = result.name + '_' + cls + '.json';
+      }
+      if (Object.keys(allConfigs).length > 0) {
+        registry[result.name] = { modName: result.name, version: result.version, configs: allConfigs };
+      }
+    } catch (e) { console.error(`[REGISTRY] Error scanning ${f}:`, e.message); }
+  }
+  modConfigRegistry = registry;
+  registryScanTime = Date.now();
+  let total = 0;
+  for (const mod of Object.values(registry)) total += Object.keys(mod.configs).length;
+  console.log(`[REGISTRY] Scanned ${tmodFiles.length} mods → ${Object.keys(registry).length} mods with configs, ${total} config classes`);
+  return registry;
+}
+
+function getRegistryWithValues() {
+  // Rescan if stale (>5 min) or never scanned
+  if (!modConfigRegistry || Date.now() - registryScanTime > 5 * 60 * 1000) {
+    scanModConfigRegistry();
+  }
+  const configsDir = getConfigsPath();
+  // Deep clone registry
+  const result = JSON.parse(JSON.stringify(modConfigRegistry));
+  // Merge in existing config file values
+  for (const [modName, mod] of Object.entries(result)) {
+    for (const [cls, cfg] of Object.entries(mod.configs)) {
+      const filePath = path.join(configsDir, cfg.filename);
+      cfg.hasFile = false;
+      cfg.values = {};
+      if (fs.existsSync(filePath)) {
+        try {
+          cfg.values = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          cfg.hasFile = true;
+        } catch { /* bad json */ }
+      }
+    }
+  }
+  return result;
 }
 
 // ── Mod Management ──────────────────────────────────────────────────────────
@@ -703,6 +891,27 @@ const server = http.createServer(async (req, res) => {
     else if (route === '/api/modconfigs' && req.method === 'GET') {
       json(res, listModConfigs());
     }
+    else if (route === '/api/modconfigs/registry' && req.method === 'GET') {
+      json(res, getRegistryWithValues());
+    }
+    else if (route === '/api/modconfigs/rescan' && req.method === 'POST') {
+      modConfigRegistry = null;
+      scanModConfigRegistry();
+      json(res, { ok: true, mods: Object.keys(modConfigRegistry).length });
+    }
+    else if (route === '/api/modconfigs/save' && req.method === 'PUT') {
+      const body = JSON.parse((await readBody(req)).toString());
+      if (!body.filename || !body.values) {
+        json(res, { error: 'Missing filename or values' }, 400);
+        return;
+      }
+      try {
+        writeModConfig(body.filename, JSON.stringify(body.values, null, 2));
+        json(res, { ok: true });
+      } catch (err) {
+        json(res, { error: err.message }, 500);
+      }
+    }
     else if (route.startsWith('/api/modconfigs/') && req.method === 'GET') {
       const filename = decodeURIComponent(route.slice('/api/modconfigs/'.length));
       try {
@@ -811,4 +1020,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Terraria Manager v2 running on http://0.0.0.0:${PORT}`);
   console.log(`Platform: ${PLATFORM} | Node: ${process.version}`);
   if (isSetupNeeded()) console.log('First-run setup required — visit the web UI to configure.');
+  // Scan mod config registry in background
+  if (config.modsPath) {
+    try { scanModConfigRegistry(); } catch (e) { console.error('[REGISTRY] Initial scan failed:', e.message); }
+  }
 });

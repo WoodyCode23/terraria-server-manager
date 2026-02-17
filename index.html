@@ -192,15 +192,35 @@
   /* ── Mod Configs ── */
   .modconfig-layout { display: flex; gap: 16px; min-height: 60vh; }
   .modconfig-sidebar {
-    width: 240px; flex-shrink: 0; background: var(--card);
-    border-radius: 8px; border: 1px solid var(--border); overflow-y: auto; max-height: 70vh;
+    width: 260px; flex-shrink: 0; background: var(--card);
+    border-radius: 8px; border: 1px solid var(--border); overflow-y: auto; max-height: 75vh;
   }
-  .modconfig-sidebar .item {
-    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
-    font-size: 0.85rem; transition: 0.15s; word-break: break-all;
+  .modconfig-sidebar .mod-group { border-bottom: 1px solid var(--border); }
+  .modconfig-sidebar .mod-header {
+    padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: 0.15s; user-select: none;
   }
-  .modconfig-sidebar .item:hover { background: var(--bg3); }
-  .modconfig-sidebar .item.active { background: var(--bg3); color: var(--accent); border-left: 3px solid var(--accent); }
+  .modconfig-sidebar .mod-header:hover { background: var(--bg3); }
+  .modconfig-sidebar .mod-header .arrow { font-size: 0.7rem; color: var(--dim); transition: 0.2s; }
+  .modconfig-sidebar .mod-header.open .arrow { transform: rotate(90deg); }
+  .modconfig-sidebar .config-list { display: none; }
+  .modconfig-sidebar .config-list.open { display: block; }
+  .modconfig-sidebar .config-item {
+    padding: 8px 14px 8px 28px; cursor: pointer; font-size: 0.8rem;
+    border-top: 1px solid rgba(255,255,255,0.03); transition: 0.15s; color: var(--dim);
+  }
+  .modconfig-sidebar .config-item:hover { background: var(--bg3); color: var(--text); }
+  .modconfig-sidebar .config-item.active { background: var(--bg3); color: var(--accent); border-left: 3px solid var(--accent); }
+  .modconfig-sidebar .config-item .badge {
+    display: inline-block; font-size: 0.65rem; padding: 1px 6px; border-radius: 3px;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .modconfig-sidebar .config-item .badge.exists { background: var(--green); color: #111; }
+  .modconfig-sidebar .config-item .badge.new { background: var(--border); color: var(--dim); }
+  .modconfig-sidebar .mod-header .mod-count {
+    font-size: 0.7rem; color: var(--dim); font-weight: 400;
+  }
   .modconfig-editor {
     flex: 1; display: flex; flex-direction: column; gap: 12px;
   }
@@ -211,16 +231,22 @@
   .modconfig-editor .restart-warn.show { display: block; }
   .modconfig-form {
     background: var(--card); border-radius: 8px; border: 1px solid var(--border);
-    padding: 16px; flex: 1; overflow-y: auto; max-height: 60vh;
+    padding: 16px; flex: 1; overflow-y: auto; max-height: 65vh;
   }
-  .modconfig-form .field { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
-  .modconfig-form .field label { flex: 0 0 200px; font-size: 0.85rem; color: var(--dim); word-break: break-all; }
+  .modconfig-form .field {
+    margin-bottom: 14px; display: flex; align-items: flex-start; gap: 10px;
+  }
+  .modconfig-form .field label {
+    flex: 0 0 220px; font-size: 0.85rem; color: var(--text); word-break: break-word;
+    padding-top: 4px;
+  }
+  .modconfig-form .field label small { display: block; color: var(--dim); font-size: 0.75rem; margin-top: 2px; }
   .modconfig-form .field input[type="text"],
   .modconfig-form .field input[type="number"] {
     flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
     background: var(--bg2); color: var(--text); font-size: 0.85rem;
   }
-  .modconfig-form .field input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+  .modconfig-form .field input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; margin-top: 4px; }
   .modconfig-raw {
     width: 100%; min-height: 40vh; background: #0a0a1a; color: var(--text);
     border: 1px solid var(--border); border-radius: 8px; padding: 14px;
@@ -228,6 +254,13 @@
     resize: vertical; line-height: 1.5;
   }
   .modconfig-none { color: var(--dim); padding: 40px; text-align: center; }
+  .modconfig-toolbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .modconfig-toolbar h3 { flex: 1; font-size: 0.95rem; min-width: 150px; }
+  .modconfig-toolbar .file-status { font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
+  .modconfig-toolbar .file-status.exists { background: rgba(78,204,163,0.15); color: var(--green); }
+  .modconfig-toolbar .file-status.new { background: rgba(255,255,255,0.05); color: var(--dim); }
 
   /* ── Worlds ── */
   .world-card {
@@ -418,16 +451,21 @@
 
     <!-- Mod Configs -->
     <div id="panel-modconfigs" class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:0.8rem;color:var(--dim)" id="modconfig-summary"></div>
+        <button class="btn btn-secondary btn-sm" onclick="rescanRegistry()">Rescan Mods</button>
+      </div>
       <div class="modconfig-layout">
         <div class="modconfig-sidebar" id="modconfig-list">
           <div class="modconfig-none">Loading...</div>
         </div>
         <div class="modconfig-editor" id="modconfig-editor">
           <div class="restart-warn" id="modconfig-restart-warn">Changes to mod configs require a server restart to take effect</div>
-          <div class="modconfig-none" id="modconfig-placeholder">Select a config file from the sidebar</div>
+          <div class="modconfig-none" id="modconfig-placeholder">Select a config from the sidebar</div>
           <div id="modconfig-form-container" style="display:none">
-            <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
-              <h3 id="modconfig-title" style="flex:1;font-size:0.95rem"></h3>
+            <div class="modconfig-toolbar" style="margin-bottom:12px">
+              <h3 id="modconfig-title"></h3>
+              <span id="modconfig-file-status" class="file-status"></span>
               <label style="font-size:0.8rem;color:var(--dim);cursor:pointer">
                 <input type="checkbox" id="modconfig-raw-toggle" onchange="toggleModConfigRaw()"> Raw JSON
               </label>
@@ -788,110 +826,192 @@ function uploadFile(file) {
   });
 }
 
-// ── Mod Configs ──
+// ── Mod Configs (Registry-Based) ──
+let configRegistry = null;
+let currentConfigKey = null; // "ModName/ClassName"
+
 async function loadModConfigs() {
-  const configs = await apiFetch('/api/modconfigs');
-  if (!configs) return;
-  const el = document.getElementById('modconfig-list');
-  if (configs.length === 0) {
-    el.innerHTML = '<div class="modconfig-none">No mod config files found</div>';
-    return;
-  }
-  el.innerHTML = configs.sort((a, b) => a.filename.localeCompare(b.filename)).map(c =>
-    `<div class="item" onclick="selectModConfig('${escAttr(c.filename)}')">${escHtml(c.filename)}</div>`
-  ).join('');
+  const registry = await apiFetch('/api/modconfigs/registry');
+  if (!registry) return;
+  configRegistry = registry;
+  renderModConfigSidebar(registry);
 }
 
-async function selectModConfig(filename) {
-  currentModConfig = filename;
-  // Highlight sidebar
-  document.querySelectorAll('#modconfig-list .item').forEach(el => {
-    el.classList.toggle('active', el.textContent === filename);
-  });
+function renderModConfigSidebar(registry) {
+  const el = document.getElementById('modconfig-list');
+  const mods = Object.entries(registry).sort((a, b) => a[0].localeCompare(b[0]));
+  if (mods.length === 0) {
+    el.innerHTML = '<div class="modconfig-none">No configurable mods found</div>';
+    document.getElementById('modconfig-summary').textContent = '';
+    return;
+  }
+  let totalConfigs = 0, totalProps = 0;
+  for (const [, mod] of mods) {
+    for (const [, cfg] of Object.entries(mod.configs)) {
+      totalConfigs++;
+      totalProps += Object.keys(cfg.properties).length;
+    }
+  }
+  document.getElementById('modconfig-summary').textContent =
+    `${mods.length} mods, ${totalConfigs} configs, ${totalProps} settings`;
 
-  const data = await apiFetch('/api/modconfigs/' + encodeURIComponent(filename));
-  if (!data) return;
+  el.innerHTML = mods.map(([modName, mod]) => {
+    const cfgEntries = Object.entries(mod.configs).sort((a, b) => a[1].displayName.localeCompare(b[1].displayName));
+    const items = cfgEntries.map(([cls, cfg]) => {
+      const key = modName + '/' + cls;
+      const badge = cfg.hasFile
+        ? '<span class="badge exists">saved</span>'
+        : '<span class="badge new">default</span>';
+      return `<div class="config-item" data-key="${escAttr(key)}" onclick="selectConfig('${escAttr(key)}')">${escHtml(cfg.displayName)}${badge}</div>`;
+    }).join('');
+    const propCount = cfgEntries.reduce((s, [,c]) => s + Object.keys(c.properties).length, 0);
+    return `<div class="mod-group">
+      <div class="mod-header" onclick="toggleModGroup(this)">
+        <span>${escHtml(modName)} <span class="mod-count">(${propCount})</span></span>
+        <span class="arrow">&#9654;</span>
+      </div>
+      <div class="config-list">${items}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleModGroup(header) {
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('open');
+}
+
+function selectConfig(key) {
+  currentConfigKey = key;
+  // Highlight sidebar
+  document.querySelectorAll('#modconfig-list .config-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.key === key);
+  });
+  // Expand parent group
+  const activeItem = document.querySelector(`.config-item[data-key="${CSS.escape(key)}"]`);
+  if (activeItem) {
+    const group = activeItem.closest('.mod-group');
+    if (group) {
+      group.querySelector('.mod-header').classList.add('open');
+      group.querySelector('.config-list').classList.add('open');
+    }
+  }
+
+  const [modName, cls] = key.split('/');
+  const cfg = configRegistry[modName]?.configs[cls];
+  if (!cfg) return;
 
   document.getElementById('modconfig-placeholder').style.display = 'none';
   document.getElementById('modconfig-form-container').style.display = 'block';
-  document.getElementById('modconfig-title').textContent = filename;
+  document.getElementById('modconfig-title').textContent = cfg.displayName;
 
-  let parsed;
-  try {
-    parsed = JSON.parse(data.content);
-  } catch {
-    // Not valid JSON, show raw
-    document.getElementById('modconfig-raw-toggle').checked = true;
-    document.getElementById('modconfig-form').style.display = 'none';
-    document.getElementById('modconfig-raw').style.display = 'block';
-    document.getElementById('modconfig-raw').value = data.content;
-    currentModConfigData = null;
-    return;
-  }
-
-  currentModConfigData = parsed;
-
-  // Check if flat (all values are primitives)
-  const isFlat = Object.values(parsed).every(v => v === null || typeof v !== 'object');
-
-  if (isFlat && !document.getElementById('modconfig-raw-toggle').checked) {
-    renderModConfigForm(parsed);
-    document.getElementById('modconfig-form').style.display = 'block';
-    document.getElementById('modconfig-raw').style.display = 'none';
+  const statusEl = document.getElementById('modconfig-file-status');
+  if (cfg.hasFile) {
+    statusEl.textContent = cfg.filename;
+    statusEl.className = 'file-status exists';
   } else {
-    document.getElementById('modconfig-raw-toggle').checked = true;
-    document.getElementById('modconfig-form').style.display = 'none';
-    document.getElementById('modconfig-raw').style.display = 'block';
-    document.getElementById('modconfig-raw').value = JSON.stringify(parsed, null, 2);
+    statusEl.textContent = 'Not yet saved';
+    statusEl.className = 'file-status new';
   }
+
+  currentModConfig = cfg.filename;
+  currentModConfigData = cfg.values || {};
+
+  // Reset raw toggle
+  document.getElementById('modconfig-raw-toggle').checked = false;
+
+  renderRegistryForm(cfg);
+  document.getElementById('modconfig-form').style.display = 'block';
+  document.getElementById('modconfig-raw').style.display = 'none';
 }
 
-function renderModConfigForm(data) {
+function renderRegistryForm(cfg) {
   const el = document.getElementById('modconfig-form');
-  el.innerHTML = Object.entries(data).map(([key, val]) => {
-    if (typeof val === 'boolean') {
+  const entries = Object.entries(cfg.properties).sort((a, b) =>
+    (a[1].label || a[0]).localeCompare(b[1].label || b[0])
+  );
+  const values = cfg.values || {};
+
+  el.innerHTML = entries.map(([propName, meta]) => {
+    const label = meta.label || propName;
+    const tooltip = meta.tooltip || '';
+    const val = values[propName];
+
+    // Infer type from current value or default to text
+    if (typeof val === 'boolean' || val === undefined) {
+      // Default booleans to false if no value
+      const checked = val === true;
       return `<div class="field">
-        <label>${escHtml(key)}</label>
-        <input type="checkbox" data-key="${escAttr(key)}" ${val ? 'checked' : ''}>
+        <label>${escHtml(label)}${tooltip ? '<small>' + escHtml(tooltip) + '</small>' : ''}</label>
+        <input type="checkbox" data-key="${escAttr(propName)}" ${checked ? 'checked' : ''}>
       </div>`;
     }
     if (typeof val === 'number') {
       return `<div class="field">
-        <label>${escHtml(key)}</label>
-        <input type="number" data-key="${escAttr(key)}" value="${val}" step="any">
+        <label>${escHtml(label)}${tooltip ? '<small>' + escHtml(tooltip) + '</small>' : ''}</label>
+        <input type="number" data-key="${escAttr(propName)}" value="${val}" step="any">
       </div>`;
     }
+    if (typeof val === 'object' && val !== null) {
+      // Complex values — show as JSON string
+      return `<div class="field">
+        <label>${escHtml(label)}${tooltip ? '<small>' + escHtml(tooltip) + '</small>' : ''}</label>
+        <input type="text" data-key="${escAttr(propName)}" data-json="1" value="${escAttr(JSON.stringify(val))}">
+      </div>`;
+    }
+    // String or unknown
     return `<div class="field">
-      <label>${escHtml(key)}</label>
-      <input type="text" data-key="${escAttr(key)}" value="${escAttr(String(val ?? ''))}">
+      <label>${escHtml(label)}${tooltip ? '<small>' + escHtml(tooltip) + '</small>' : ''}</label>
+      <input type="text" data-key="${escAttr(propName)}" value="${escAttr(String(val ?? ''))}">
     </div>`;
   }).join('');
+
+  // If no entries but there ARE existing values not in registry, show them too
+  const registryKeys = new Set(entries.map(([k]) => k));
+  const extraKeys = Object.keys(values).filter(k => !registryKeys.has(k));
+  if (extraKeys.length > 0) {
+    el.innerHTML += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)"><small style="color:var(--dim)">Additional saved values (not in mod registry):</small></div>';
+    el.innerHTML += extraKeys.map(key => {
+      const val = values[key];
+      if (typeof val === 'boolean') {
+        return `<div class="field"><label>${escHtml(key)}</label>
+          <input type="checkbox" data-key="${escAttr(key)}" ${val ? 'checked' : ''}></div>`;
+      }
+      if (typeof val === 'number') {
+        return `<div class="field"><label>${escHtml(key)}</label>
+          <input type="number" data-key="${escAttr(key)}" value="${val}" step="any"></div>`;
+      }
+      if (typeof val === 'object' && val !== null) {
+        return `<div class="field"><label>${escHtml(key)}</label>
+          <input type="text" data-key="${escAttr(key)}" data-json="1" value="${escAttr(JSON.stringify(val))}"></div>`;
+      }
+      return `<div class="field"><label>${escHtml(key)}</label>
+        <input type="text" data-key="${escAttr(key)}" value="${escAttr(String(val ?? ''))}"></div>`;
+    }).join('');
+  }
 }
 
 function toggleModConfigRaw() {
   const raw = document.getElementById('modconfig-raw-toggle').checked;
   if (raw) {
-    // Collect form values into JSON
-    if (currentModConfigData) {
-      const formData = collectModConfigForm();
-      document.getElementById('modconfig-raw').value = JSON.stringify(formData, null, 2);
-    }
+    const formData = collectModConfigForm();
+    document.getElementById('modconfig-raw').value = JSON.stringify(formData, null, 2);
     document.getElementById('modconfig-form').style.display = 'none';
     document.getElementById('modconfig-raw').style.display = 'block';
   } else {
-    // Parse raw back to form
     try {
       const parsed = JSON.parse(document.getElementById('modconfig-raw').value);
-      const isFlat = Object.values(parsed).every(v => v === null || typeof v !== 'object');
-      if (isFlat) {
-        currentModConfigData = parsed;
-        renderModConfigForm(parsed);
-        document.getElementById('modconfig-form').style.display = 'block';
-        document.getElementById('modconfig-raw').style.display = 'none';
-      } else {
-        document.getElementById('modconfig-raw-toggle').checked = true;
-        alert('This config has nested values and can only be edited as raw JSON.');
+      currentModConfigData = parsed;
+      // Re-render with registry info
+      if (currentConfigKey) {
+        const [modName, cls] = currentConfigKey.split('/');
+        const cfg = configRegistry[modName]?.configs[cls];
+        if (cfg) {
+          cfg.values = parsed;
+          renderRegistryForm(cfg);
+        }
       }
+      document.getElementById('modconfig-form').style.display = 'block';
+      document.getElementById('modconfig-raw').style.display = 'none';
     } catch {
       document.getElementById('modconfig-raw-toggle').checked = true;
       alert('Invalid JSON — fix errors before switching to form view.');
@@ -905,6 +1025,9 @@ function collectModConfigForm() {
     const key = input.dataset.key;
     if (input.type === 'checkbox') data[key] = input.checked;
     else if (input.type === 'number') data[key] = parseFloat(input.value) || 0;
+    else if (input.dataset.json) {
+      try { data[key] = JSON.parse(input.value); } catch { data[key] = input.value; }
+    }
     else data[key] = input.value;
   });
   return data;
@@ -912,20 +1035,50 @@ function collectModConfigForm() {
 
 async function saveModConfig() {
   if (!currentModConfig) return;
-  let content;
+  let values;
   if (document.getElementById('modconfig-raw-toggle').checked) {
-    content = document.getElementById('modconfig-raw').value;
+    try {
+      values = JSON.parse(document.getElementById('modconfig-raw').value);
+    } catch {
+      alert('Invalid JSON');
+      return;
+    }
   } else {
-    content = JSON.stringify(collectModConfigForm(), null, 2);
+    values = collectModConfigForm();
   }
 
-  const res = await apiFetch('/api/modconfigs/' + encodeURIComponent(currentModConfig), {
+  const res = await apiFetch('/api/modconfigs/save', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
+    body: JSON.stringify({ filename: currentModConfig, values })
   });
   if (res && res.ok) {
     document.getElementById('modconfig-restart-warn').classList.add('show');
+    // Update local registry state
+    if (currentConfigKey) {
+      const [modName, cls] = currentConfigKey.split('/');
+      if (configRegistry[modName]?.configs[cls]) {
+        configRegistry[modName].configs[cls].hasFile = true;
+        configRegistry[modName].configs[cls].values = values;
+      }
+    }
+    // Update file status badge
+    const statusEl = document.getElementById('modconfig-file-status');
+    statusEl.textContent = currentModConfig;
+    statusEl.className = 'file-status exists';
+    // Update sidebar badge
+    const sidebarItem = document.querySelector(`.config-item[data-key="${CSS.escape(currentConfigKey)}"]`);
+    if (sidebarItem) {
+      const badge = sidebarItem.querySelector('.badge');
+      if (badge) { badge.className = 'badge exists'; badge.textContent = 'saved'; }
+    }
+  }
+}
+
+async function rescanRegistry() {
+  const res = await apiPost('/api/modconfigs/rescan');
+  if (res && res.ok) {
+    loadModConfigs();
   }
 }
 
