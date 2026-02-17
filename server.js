@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFile } = require('child_process');
 const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 
@@ -453,6 +454,197 @@ function listMods() {
   });
 }
 
+// ── Workshop Map & Mod Updates ───────────────────────────────────────────────
+const WORKSHOP_MAP_PATH = path.join(__dirname, 'workshop-map.json');
+const STEAMCMD_PATHS = ['/usr/games/steamcmd', '/usr/local/bin/steamcmd', 'steamcmd'];
+const STEAM_DOWNLOAD_BASE = path.join(os.homedir(), '.local', 'share', 'Steam', 'steamapps', 'workshop', 'content', '1281930');
+const TMODLOADER_APPID = '1281930';
+
+function loadWorkshopMap() {
+  try {
+    return JSON.parse(fs.readFileSync(WORKSHOP_MAP_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function findSteamCmd() {
+  for (const p of STEAMCMD_PATHS) {
+    try {
+      if (fs.existsSync(p)) return p;
+      // Try which/where
+      execSync(`which ${p} 2>/dev/null`, { encoding: 'utf8' });
+      return p;
+    } catch { /* not found */ }
+  }
+  return null;
+}
+
+function steamApiPost(bodyStr) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.steampowered.com',
+      path: '/ISteamRemoteStorage/GetPublishedFileDetails/v1/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(bodyStr)
+      }
+    };
+    const req = https.request(options, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Steam API timeout')); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+let updateCache = null;
+let updateCacheTime = 0;
+const UPDATE_CACHE_TTL = 10 * 60 * 1000; // 10 min
+
+async function checkForUpdates(force = false) {
+  if (!force && updateCache && Date.now() - updateCacheTime < UPDATE_CACHE_TTL) {
+    return updateCache;
+  }
+
+  const workshopMap = loadWorkshopMap();
+  const modNames = Object.keys(workshopMap);
+  if (modNames.length === 0) {
+    return { mapped: false, updates: [], message: 'No workshop-map.json found. Run tools/build-workshop-map.js first.' };
+  }
+
+  // Build Steam API request body
+  const ids = modNames.map(n => workshopMap[n].workshopId);
+  const params = [`itemcount=${ids.length}`];
+  ids.forEach((id, i) => params.push(`publishedfileids[${i}]=${id}`));
+  const bodyStr = params.join('&');
+
+  let apiResult;
+  try {
+    apiResult = await steamApiPost(bodyStr);
+  } catch (e) {
+    return { mapped: true, updates: [], error: 'Steam API request failed: ' + e.message };
+  }
+
+  const details = apiResult?.response?.publishedfiledetails || [];
+  const modsPath = getModsPath();
+  const updates = [];
+
+  for (const modName of modNames) {
+    const workshopId = workshopMap[modName].workshopId;
+    const detail = details.find(d => d.publishedfileid === String(workshopId));
+    if (!detail || detail.result !== 1) {
+      updates.push({ modName, workshopId, status: 'error', message: 'Not found on Steam Workshop' });
+      continue;
+    }
+
+    const latestTime = detail.time_updated;
+    const title = detail.title || modName;
+    let installedTime = 0;
+    const tmodPath = path.join(modsPath, modName + '.tmod');
+    try {
+      const stat = fs.statSync(tmodPath);
+      installedTime = Math.floor(stat.mtimeMs / 1000);
+    } catch { /* not installed */ }
+
+    const updateAvailable = latestTime > installedTime;
+    updates.push({
+      modName,
+      workshopId,
+      title,
+      installedTime,
+      latestTime,
+      updateAvailable,
+      installed: installedTime > 0,
+      status: !installedTime ? 'not_installed' : updateAvailable ? 'update_available' : 'up_to_date'
+    });
+  }
+
+  const result = {
+    mapped: true,
+    steamcmd: !!findSteamCmd(),
+    total: updates.length,
+    updatesAvailable: updates.filter(u => u.updateAvailable).length,
+    updates: updates.sort((a, b) => {
+      // Updates first, then alphabetical
+      if (a.updateAvailable !== b.updateAvailable) return a.updateAvailable ? -1 : 1;
+      return a.modName.localeCompare(b.modName);
+    })
+  };
+
+  updateCache = result;
+  updateCacheTime = Date.now();
+  return result;
+}
+
+function downloadModUpdate(workshopId, modName) {
+  return new Promise((resolve, reject) => {
+    const steamcmd = findSteamCmd();
+    if (!steamcmd) {
+      reject(new Error('SteamCMD not found on this system'));
+      return;
+    }
+
+    console.log(`[UPDATE] Downloading ${modName} (workshop ${workshopId}) via SteamCMD...`);
+    const args = ['+login', 'anonymous', '+workshop_download_item', TMODLOADER_APPID, String(workshopId), '+quit'];
+
+    const proc = execFile(steamcmd, args, { timeout: 300000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.error(`[UPDATE] SteamCMD failed for ${modName}:`, err.message);
+        reject(new Error('SteamCMD download failed: ' + err.message));
+        return;
+      }
+
+      // Find the downloaded .tmod
+      const itemDir = path.join(STEAM_DOWNLOAD_BASE, String(workshopId));
+      if (!fs.existsSync(itemDir)) {
+        reject(new Error('Download directory not found after SteamCMD'));
+        return;
+      }
+
+      // Find latest version subfolder
+      const subDirs = fs.readdirSync(itemDir)
+        .filter(d => { try { return fs.statSync(path.join(itemDir, d)).isDirectory(); } catch { return false; } })
+        .sort((a, b) => b.localeCompare(a));
+
+      let tmodFile = null;
+      for (const sub of subDirs) {
+        const files = fs.readdirSync(path.join(itemDir, sub));
+        const tmod = files.find(f => f.endsWith('.tmod') && !f.endsWith('.tmod.bak'));
+        if (tmod) {
+          tmodFile = path.join(itemDir, sub, tmod);
+          break;
+        }
+      }
+
+      if (!tmodFile) {
+        reject(new Error('No .tmod file found in downloaded content'));
+        return;
+      }
+
+      // Copy to Mods directory
+      const dest = path.join(getModsPath(), modName + '.tmod');
+      try {
+        fs.copyFileSync(tmodFile, dest);
+        console.log(`[UPDATE] ${modName} updated successfully`);
+        // Invalidate update cache
+        updateCache = null;
+        resolve({ ok: true, modName, source: tmodFile, dest });
+      } catch (e) {
+        reject(new Error('Failed to copy .tmod: ' + e.message));
+      }
+    });
+  });
+}
+
 // ── Mod Config Editor ───────────────────────────────────────────────────────
 function getConfigsPath() { return config.configsPath || path.join(getDefaultDataPath(), 'ModConfigs'); }
 
@@ -885,6 +1077,64 @@ const server = http.createServer(async (req, res) => {
         json(res, { ok: true });
       } else {
         json(res, { error: 'File not found' }, 404);
+      }
+    }
+    // ── Mod Updates ──
+    else if (route === '/api/mods/updates' && req.method === 'GET') {
+      const force = url.searchParams.get('force') === '1';
+      try {
+        const result = await checkForUpdates(force);
+        json(res, result);
+      } catch (err) {
+        json(res, { error: err.message }, 500);
+      }
+    }
+    else if (route === '/api/mods/update' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)).toString());
+      if (!body.workshopId || !body.modName) {
+        json(res, { error: 'Missing workshopId or modName' }, 400);
+        return;
+      }
+      try {
+        const result = await downloadModUpdate(body.workshopId, body.modName);
+        json(res, result);
+      } catch (err) {
+        json(res, { error: err.message }, 500);
+      }
+    }
+    else if (route === '/api/mods/update-all' && req.method === 'POST') {
+      try {
+        const check = await checkForUpdates(true);
+        const toUpdate = check.updates.filter(u => u.updateAvailable);
+        if (toUpdate.length === 0) {
+          json(res, { ok: true, updated: 0 });
+          return;
+        }
+        const results = [];
+        for (const mod of toUpdate) {
+          try {
+            await downloadModUpdate(mod.workshopId, mod.modName);
+            results.push({ modName: mod.modName, ok: true });
+          } catch (e) {
+            results.push({ modName: mod.modName, ok: false, error: e.message });
+          }
+        }
+        json(res, { ok: true, updated: results.filter(r => r.ok).length, total: toUpdate.length, results });
+      } catch (err) {
+        json(res, { error: err.message }, 500);
+      }
+    }
+    else if (route === '/api/workshop-map' && req.method === 'GET') {
+      json(res, loadWorkshopMap());
+    }
+    else if (route === '/api/workshop-map' && req.method === 'PUT') {
+      const body = JSON.parse((await readBody(req)).toString());
+      try {
+        fs.writeFileSync(WORKSHOP_MAP_PATH, JSON.stringify(body, null, 2));
+        updateCache = null;
+        json(res, { ok: true, count: Object.keys(body).length });
+      } catch (err) {
+        json(res, { error: err.message }, 500);
       }
     }
     // ── Mod Configs ──

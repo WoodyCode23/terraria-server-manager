@@ -176,6 +176,36 @@
   }
   .del-btn:hover { background: var(--accent); color: #fff; }
 
+  /* ── Update Badges ── */
+  .update-bar {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .update-bar .update-summary {
+    flex: 1; font-size: 0.85rem; color: var(--dim);
+  }
+  .update-bar .update-summary strong { color: var(--yellow); }
+  .update-badge {
+    display: inline-block; font-size: 0.7rem; padding: 2px 8px; border-radius: 3px;
+    font-weight: 600; vertical-align: middle;
+  }
+  .update-badge.available { background: var(--yellow); color: #111; }
+  .update-badge.up-to-date { background: rgba(78,204,163,0.15); color: var(--green); }
+  .update-badge.checking { background: rgba(255,255,255,0.05); color: var(--dim); }
+  .update-badge.error { background: rgba(233,69,96,0.15); color: var(--accent); }
+  .update-badge.unmapped { background: rgba(255,255,255,0.03); color: var(--dim); }
+  .btn-update { background: var(--yellow); color: #111; }
+  .btn-update-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 4px;
+    border: none; background: var(--yellow); color: #111; cursor: pointer; font-weight: 600; }
+  .btn-update-sm:hover { opacity: 0.85; }
+  .btn-update-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+  .workshop-notice {
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 16px; margin-bottom: 16px; font-size: 0.85rem; color: var(--dim);
+  }
+  .workshop-notice code { background: var(--bg2); padding: 2px 6px; border-radius: 3px; font-size: 0.8rem; }
+  .spin { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
   /* ── Upload ── */
   .upload-area {
     border: 2px dashed var(--border); border-radius: 8px; padding: 30px;
@@ -433,6 +463,21 @@
         <button class="btn btn-restart" style="padding:6px 16px" onclick="apiPost('/api/restart')">Restart Now</button>
       </div>
 
+      <div id="workshop-notice" class="workshop-notice" style="display:none">
+        No workshop mapping found. Run <code>node tools/build-workshop-map.js</code> on your machine with Steam installed, then upload <code>workshop-map.json</code> to the server.
+        <div style="margin-top:8px">
+          <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+            Upload workshop-map.json <input type="file" id="workshop-map-upload" accept=".json" style="display:none" onchange="uploadWorkshopMap(this)">
+          </label>
+        </div>
+      </div>
+
+      <div class="update-bar" id="update-bar">
+        <div class="update-summary" id="update-summary"></div>
+        <button class="btn btn-secondary btn-sm" id="btn-check-updates" onclick="checkUpdates(true)">Check for Updates</button>
+        <button class="btn btn-update btn-sm" id="btn-update-all" style="display:none" onclick="updateAllMods()">Update All</button>
+      </div>
+
       <div class="upload-area" id="upload-area">
         <p>Drag & drop .tmod files here, or click to browse</p>
         <input type="file" id="upload-input" accept=".tmod" multiple>
@@ -443,7 +488,7 @@
 
       <table class="mod-table">
         <thead>
-          <tr><th>Mod</th><th>Version</th><th>Size</th><th>Enabled</th><th></th></tr>
+          <tr><th>Mod</th><th>Version</th><th>Size</th><th>Update</th><th>Enabled</th><th></th></tr>
         </thead>
         <tbody id="mod-tbody"></tbody>
       </table>
@@ -642,6 +687,7 @@ async function showApp() {
   loadConfig();
   loadModConfigs();
   loadWorlds();
+  checkUpdates();
 }
 
 // ── API Helpers ──
@@ -737,23 +783,37 @@ function kickPlayer(name) {
 }
 
 // ── Mods ──
+let modUpdateData = {}; // modName → update info
+
 async function loadMods() {
   const mods = await apiFetch('/api/mods');
   if (!mods) return;
   const tbody = document.getElementById('mod-tbody');
-  tbody.innerHTML = mods.sort((a, b) => a.name.localeCompare(b.name)).map(m => `
-    <tr>
+  tbody.innerHTML = mods.sort((a, b) => a.name.localeCompare(b.name)).map(m => {
+    const upd = modUpdateData[m.name];
+    let updateCell = '<td><span class="update-badge unmapped">--</span></td>';
+    if (upd) {
+      if (upd.status === 'update_available') {
+        updateCell = `<td><button class="btn-update-sm" id="upd-${escAttr(m.name)}" onclick="updateSingleMod('${escAttr(m.name)}', '${escAttr(upd.workshopId)}')">Update</button></td>`;
+      } else if (upd.status === 'up_to_date') {
+        updateCell = '<td><span class="update-badge up-to-date">Up to date</span></td>';
+      } else if (upd.status === 'error') {
+        updateCell = '<td><span class="update-badge error">Error</span></td>';
+      }
+    }
+    return `<tr>
       <td><strong>${escHtml(m.name)}</strong><br><small style="color:var(--dim)">${escHtml(m.filename)}</small></td>
       <td>${escHtml(m.version)}</td>
       <td>${formatSize(m.size)}</td>
+      ${updateCell}
       <td>
         <button class="toggle ${m.enabled ? 'on' : 'off'}" onclick="toggleMod('${escHtml(m.name)}', this)"></button>
       </td>
       <td>
         <button class="del-btn" onclick="deleteMod('${escHtml(m.filename)}')">Delete</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function toggleMod(name, btn) {
@@ -824,6 +884,130 @@ function uploadFile(file) {
     xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.send(file);
   });
+}
+
+// ── Mod Updates ──
+async function checkUpdates(force = false) {
+  const btn = document.getElementById('btn-check-updates');
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  document.getElementById('update-summary').innerHTML = '<span class="spin">&#9696;</span> Checking Steam Workshop...';
+
+  try {
+    const data = await apiFetch('/api/mods/updates' + (force ? '?force=1' : ''));
+    if (!data) return;
+
+    if (!data.mapped) {
+      document.getElementById('workshop-notice').style.display = 'block';
+      document.getElementById('update-summary').textContent = '';
+      document.getElementById('btn-update-all').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('workshop-notice').style.display = 'none';
+
+    // Build lookup
+    modUpdateData = {};
+    for (const u of (data.updates || [])) {
+      modUpdateData[u.modName] = u;
+    }
+
+    const avail = data.updatesAvailable || 0;
+    if (avail > 0) {
+      document.getElementById('update-summary').innerHTML =
+        `<strong>${avail} update${avail !== 1 ? 's' : ''} available</strong> out of ${data.total} mapped mods`;
+      document.getElementById('btn-update-all').style.display = '';
+    } else {
+      document.getElementById('update-summary').textContent =
+        `All ${data.total} mapped mods are up to date`;
+      document.getElementById('btn-update-all').style.display = 'none';
+    }
+
+    if (!data.steamcmd) {
+      document.getElementById('update-summary').innerHTML +=
+        ' <span style="color:var(--accent)">(SteamCMD not found — install it to enable one-click updates)</span>';
+    }
+
+    // Re-render mod table with update info
+    loadMods();
+  } catch (e) {
+    document.getElementById('update-summary').textContent = 'Update check failed';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check for Updates';
+  }
+}
+
+async function updateSingleMod(modName, workshopId) {
+  const btn = document.getElementById('upd-' + modName);
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating...'; }
+
+  try {
+    const res = await apiPost('/api/mods/update', { modName, workshopId });
+    if (res && res.ok) {
+      if (btn) { btn.textContent = 'Done!'; btn.className = 'update-badge up-to-date'; }
+      showModBanner();
+      // Refresh after a beat
+      setTimeout(() => { checkUpdates(true); }, 1000);
+    } else {
+      alert('Update failed: ' + (res?.error || 'Unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Update'; }
+    }
+  } catch (e) {
+    alert('Update failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Update'; }
+  }
+}
+
+async function updateAllMods() {
+  const btn = document.getElementById('btn-update-all');
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+  document.getElementById('update-summary').innerHTML = '<span class="spin">&#9696;</span> Downloading updates via SteamCMD...';
+
+  try {
+    const res = await apiPost('/api/mods/update-all');
+    if (res && res.ok !== undefined) {
+      const failed = (res.results || []).filter(r => !r.ok);
+      if (failed.length > 0) {
+        alert(`Updated ${res.updated}/${res.total}. Failed: ${failed.map(f => f.modName + ': ' + f.error).join(', ')}`);
+      }
+      showModBanner();
+      checkUpdates(true);
+    } else {
+      alert('Update failed: ' + (res?.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Update failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Update All';
+  }
+}
+
+async function uploadWorkshopMap(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const text = await file.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    alert('Invalid JSON file');
+    return;
+  }
+  const res = await apiFetch('/api/workshop-map', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(parsed)
+  });
+  if (res && res.ok) {
+    alert(`Workshop map uploaded: ${res.count} mods mapped`);
+    document.getElementById('workshop-notice').style.display = 'none';
+    checkUpdates(true);
+  } else {
+    alert('Upload failed: ' + (res?.error || 'Unknown error'));
+  }
 }
 
 // ── Mod Configs (Registry-Based) ──
@@ -1216,6 +1400,7 @@ document.querySelectorAll('nav button').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
     // Reload data for tabs
+    if (btn.dataset.panel === 'mods') { loadMods(); checkUpdates(); }
     if (btn.dataset.panel === 'modconfigs') loadModConfigs();
     if (btn.dataset.panel === 'worlds') loadWorlds();
   });
