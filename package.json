@@ -12,7 +12,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/terraria-manager.git"
+    "url": "https://github.com/WoodyCode23/terraria-server-manager.git"
   },
   "dependencies": {
     "ws": "^8.16.0"

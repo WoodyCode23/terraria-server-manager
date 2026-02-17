@@ -21,7 +21,7 @@ A web-based management panel for Terraria tModLoader dedicated servers. Single-f
 ## Quick Start
 
 ```bash
-git clone https://github.com/yourusername/terraria-manager.git
+git clone https://github.com/WoodyCode23/terraria-server-manager.git
 cd terraria-manager
 npm install
 node server.js
@@ -35,7 +35,7 @@ Open `http://localhost:8080` in your browser. The setup wizard will guide you th
 
 ```bash
 cd /opt
-git clone https://github.com/yourusername/terraria-manager.git
+git clone https://github.com/WoodyCode23/terraria-server-manager.git
 cd terraria-manager
 npm install
 
@@ -49,7 +49,7 @@ systemctl enable --now terraria-manager
 ### Windows
 
 ```bash
-git clone https://github.com/yourusername/terraria-manager.git
+git clone https://github.com/WoodyCode23/terraria-server-manager.git
 cd terraria-manager
 npm install
 ```
@@ -59,7 +59,7 @@ Double-click `terraria-manager.bat` to start, or run `node server.js`.
 ### macOS
 
 ```bash
-git clone https://github.com/yourusername/terraria-manager.git
+git clone https://github.com/WoodyCode23/terraria-server-manager.git
 cd terraria-manager
 npm install
 node server.js
