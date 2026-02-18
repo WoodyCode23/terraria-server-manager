@@ -476,6 +476,7 @@
         <div class="update-summary" id="update-summary"></div>
         <button class="btn btn-secondary btn-sm" id="btn-check-updates" onclick="checkUpdates(true)">Check for Updates</button>
         <button class="btn btn-update btn-sm" id="btn-update-all" style="display:none" onclick="updateAllMods()">Update All</button>
+        <button class="btn btn-secondary btn-sm" id="btn-mark-current" style="display:none" onclick="markAllCurrent()">Mark All Current</button>
       </div>
 
       <div class="upload-area" id="upload-area">
@@ -913,14 +914,18 @@ async function checkUpdates(force = false) {
     }
 
     const avail = data.updatesAvailable || 0;
+    // Check if this is first run (no baselines yet)
+    const noBaseline = (data.updates || []).some(u => u.lastKnownUpdate === undefined || u.lastKnownUpdate === null);
     if (avail > 0) {
       document.getElementById('update-summary').innerHTML =
         `<strong>${avail} update${avail !== 1 ? 's' : ''} available</strong> out of ${data.total} mapped mods`;
       document.getElementById('btn-update-all').style.display = '';
+      document.getElementById('btn-mark-current').style.display = noBaseline ? '' : 'none';
     } else {
       document.getElementById('update-summary').textContent =
         `All ${data.total} mapped mods are up to date`;
       document.getElementById('btn-update-all').style.display = 'none';
+      document.getElementById('btn-mark-current').style.display = 'none';
     }
 
     if (!data.steamcmd) {
@@ -982,6 +987,14 @@ async function updateAllMods() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Update All';
+  }
+}
+
+async function markAllCurrent() {
+  if (!confirm('Mark all mods as up to date? Only do this if you know your installed mods are current.')) return;
+  const res = await apiPost('/api/mods/mark-current', {});
+  if (res && res.ok) {
+    checkUpdates(true);
   }
 }
 

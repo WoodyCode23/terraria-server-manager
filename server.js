@@ -508,6 +508,7 @@ function steamApiPost(bodyStr) {
 
 let updateCache = null;
 let updateCacheTime = 0;
+let updateCache_steamTimes = {}; // workshopId → time_updated from last check
 const UPDATE_CACHE_TTL = 10 * 60 * 1000; // 10 min
 
 async function checkForUpdates(force = false) {
@@ -539,7 +540,8 @@ async function checkForUpdates(force = false) {
   const updates = [];
 
   for (const modName of modNames) {
-    const workshopId = workshopMap[modName].workshopId;
+    const mapEntry = workshopMap[modName];
+    const workshopId = mapEntry.workshopId;
     const detail = details.find(d => d.publishedfileid === String(workshopId));
     if (!detail || detail.result !== 1) {
       updates.push({ modName, workshopId, status: 'error', message: 'Not found on Steam Workshop' });
@@ -548,24 +550,37 @@ async function checkForUpdates(force = false) {
 
     const latestTime = detail.time_updated;
     const title = detail.title || modName;
-    let installedTime = 0;
     const tmodPath = path.join(modsPath, modName + '.tmod');
-    try {
-      const stat = fs.statSync(tmodPath);
-      installedTime = Math.floor(stat.mtimeMs / 1000);
-    } catch { /* not installed */ }
+    const installed = fs.existsSync(tmodPath);
 
-    const updateAvailable = latestTime > installedTime;
+    // Extract installed version from .tmod binary
+    let installedVersion = null;
+    if (installed) {
+      const parsed = parseTmod(tmodPath);
+      if (parsed) installedVersion = parsed.version;
+    }
+
+    // Compare against stored lastKnownUpdate timestamp.
+    // If we don't have one yet, assume an update may be available (conservative).
+    const hasBaseline = !!mapEntry.lastKnownUpdate;
+    const updateAvailable = hasBaseline ? latestTime > mapEntry.lastKnownUpdate : installed;
     updates.push({
       modName,
       workshopId,
       title,
-      installedTime,
+      installedVersion,
+      lastKnownUpdate: mapEntry.lastKnownUpdate,
       latestTime,
       updateAvailable,
-      installed: installedTime > 0,
-      status: !installedTime ? 'not_installed' : updateAvailable ? 'update_available' : 'up_to_date'
+      installed,
+      status: !installed ? 'not_installed' : updateAvailable ? 'update_available' : 'up_to_date'
     });
+  }
+
+  // Store the latest Steam timestamps for use by mark-current
+  updateCache_steamTimes = {};
+  for (const d of details) {
+    if (d.result === 1) updateCache_steamTimes[d.publishedfileid] = d.time_updated;
   }
 
   const result = {
@@ -635,6 +650,14 @@ function downloadModUpdate(workshopId, modName) {
       try {
         fs.copyFileSync(tmodFile, dest);
         console.log(`[UPDATE] ${modName} updated successfully`);
+        // Update lastKnownUpdate in workshop map
+        try {
+          const wmap = loadWorkshopMap();
+          if (wmap[modName]) {
+            wmap[modName].lastKnownUpdate = Math.floor(Date.now() / 1000);
+            fs.writeFileSync(WORKSHOP_MAP_PATH, JSON.stringify(wmap, null, 2));
+          }
+        } catch {}
         // Invalidate update cache
         updateCache = null;
         resolve({ ok: true, modName, source: tmodFile, dest });
@@ -1120,6 +1143,28 @@ const server = http.createServer(async (req, res) => {
           }
         }
         json(res, { ok: true, updated: results.filter(r => r.ok).length, total: toUpdate.length, results });
+      } catch (err) {
+        json(res, { error: err.message }, 500);
+      }
+    }
+    else if (route === '/api/mods/mark-current' && req.method === 'POST') {
+      // Mark specified mods (or all) as up-to-date by storing current Steam time_updated
+      const body = JSON.parse((await readBody(req)).toString());
+      const modNames = body.modNames; // array of mod names, or null for all
+      const wmap = loadWorkshopMap();
+      let count = 0;
+      for (const [name, entry] of Object.entries(wmap)) {
+        if (modNames && !modNames.includes(name)) continue;
+        const steamTime = updateCache_steamTimes[String(entry.workshopId)];
+        if (steamTime) {
+          entry.lastKnownUpdate = steamTime;
+          count++;
+        }
+      }
+      try {
+        fs.writeFileSync(WORKSHOP_MAP_PATH, JSON.stringify(wmap, null, 2));
+        updateCache = null;
+        json(res, { ok: true, marked: count });
       } catch (err) {
         json(res, { error: err.message }, 500);
       }
